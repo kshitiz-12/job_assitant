@@ -1,0 +1,64 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 1457 >>
+stream
+BT
+/F1 11 Tf
+1 0 0 1 54 760 Tm (Alex Rivera) Tj
+1 0 0 1 54 745 Tm (Software Engineer) Tj
+1 0 0 1 54 730 Tm (alex.rivera@example.com | \(415\) 555-0134 | San Francisco) Tj
+1 0 0 1 54 715 Tm (https://linkedin.com/in/alexrivera) Tj
+1 0 0 1 54 700 Tm () Tj
+1 0 0 1 54 685 Tm (Summary) Tj
+1 0 0 1 54 670 Tm (Software engineer with 3 years of experience building web applications in React, TypeScrip) Tj
+1 0 0 1 54 655 Tm (t, Node.js, and PostgreSQL.) Tj
+1 0 0 1 54 640 Tm () Tj
+1 0 0 1 54 625 Tm (Experience) Tj
+1 0 0 1 54 610 Tm (Software Engineer) Tj
+1 0 0 1 54 595 Tm (Northwind Labs) Tj
+1 0 0 1 54 580 Tm (Apr 2025 - Present) Tj
+1 0 0 1 54 565 Tm (Built internal dashboards in React and TypeScript.) Tj
+1 0 0 1 54 550 Tm (Designed Node.js APIs backed by PostgreSQL.) Tj
+1 0 0 1 54 535 Tm () Tj
+1 0 0 1 54 520 Tm (Junior Developer) Tj
+1 0 0 1 54 505 Tm (Harbor Systems) Tj
+1 0 0 1 54 490 Tm (Oct 2023 - Mar 2025) Tj
+1 0 0 1 54 475 Tm (Shipped REST endpoints in JavaScript and Python.) Tj
+1 0 0 1 54 460 Tm () Tj
+1 0 0 1 54 445 Tm (Education) Tj
+1 0 0 1 54 430 Tm (B.S. Computer Science, State University, 2022) Tj
+1 0 0 1 54 415 Tm () Tj
+1 0 0 1 54 400 Tm (Skills) Tj
+1 0 0 1 54 385 Tm (React, TypeScript, JavaScript, Node.js, PostgreSQL, Python, Git, AWS) Tj
+1 0 0 1 54 370 Tm () Tj
+1 0 0 1 54 355 Tm (Projects) Tj
+1 0 0 1 54 340 Tm (Trailhead - Hiking log built with React and Node.js) Tj
+1 0 0 1 54 325 Tm (Budget board - TypeScript expense tracker) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001749 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1819
+%%EOF

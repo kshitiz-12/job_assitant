@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Chat Assistant</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect fill='%23202833' width='16' height='16' rx='3'/%3E%3Cpath d='M3.5 4.5h9v1.2h-9zm0 3h6.2v1.2H3.5zm0 3h7.4v1.2H3.5z' fill='%23f4efe6'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">J</span>
+        <div>
+          <strong>Job Chat</strong>
+          <span>Assistant</span>
+        </div>
+      </div>
+      <p class="dataset" id="dataset">Loading the dataset…</p>
+
+      <section class="block" id="profile-block" hidden>
+        <h2>On file</h2>
+        <div id="profile"></div>
+      </section>
+
+      <section class="block" id="filter-block" hidden>
+        <h2>Filters</h2>
+        <p id="filters"></p>
+      </section>
+
+      <section class="block">
+        <h2>Applied</h2>
+        <ul id="applied"></ul>
+        <p class="quiet" id="applied-empty">Nothing recorded yet.</p>
+      </section>
+
+      <p class="footnote">Listings come from public Greenhouse, Lever, and Ashby boards. Each card links to the original posting.</p>
+    </aside>
+
+    <main>
+      <header class="top">
+        <div>
+          <h1>Chat</h1>
+          <p>Resume in, matching roles out. Ask in plain language.</p>
+        </div>
+        <button type="button" id="new-chat" class="ghost">New chat</button>
+      </header>
+
+      <div id="log" class="log" role="log" aria-live="polite"></div>
+
+      <form id="composer" class="composer">
+        <div id="file-chip" class="file-chip" hidden></div>
+        <label class="sr-only" for="message">Message</label>
+        <textarea id="message" rows="2" placeholder="Ask for remote roles, a skill, or say apply to job 2"></textarea>
+        <div class="bar">
+          <label class="attach">
+            <input id="file" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+            Attach resume
+          </label>
+          <span class="hint">Enter to send</span>
+          <button type="submit" id="send">Send</button>
+        </div>
+      </form>
+    </main>
+  </div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
