@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import re
 
+from app.agents.llm import plan_with_gemini
 from app.skills import extract_skills
+from app.tracks import track_from_text
 
 _APPLY = re.compile(r"\b(apply|applying)\b|\bapplication\s+(for|to)\b", re.I)
 _STATUS = re.compile(
@@ -36,7 +38,18 @@ _SKILL_ADD = re.compile(
 )
 
 
-def interpret(message: str) -> dict:
+def interpret(message: str, profile: dict | None = None, filters: dict | None = None) -> dict:
+    intent = _interpret_rules(message)
+    # Apply, status, and greet stay on the rules. The model only rewrites
+    # an open-ended search sentence, and only when a key is configured.
+    if intent["kind"] in {"jobs", "fallback"}:
+        planned = plan_with_gemini(message, profile, filters)
+        if planned:
+            return planned
+    return intent
+
+
+def _interpret_rules(message: str) -> dict:
     text = (message or "").strip()
     low = text.lower()
     intent = {
@@ -133,14 +146,22 @@ def _patches(text: str) -> tuple[dict, dict, bool, bool]:
         if added:
             profile["add_skills"] = added
 
+    # "only frontend roles" must not be read as "only remote". The remote
+    # pattern used to be loose enough that a previous remote filter just stayed.
+    mentions_remote = bool(re.search(r"\bremote\b|\bwfh\b|work from home", low))
     if re.search(r"\b(on-?site only|in[- ]office only|office only|not remote)\b", low):
         patch["remote"] = False
     elif re.search(r"\b(include on-?site|not just remote|any workplace|remote or office)\b", low):
         patch["remote"] = None
-    elif re.search(r"\b(only remote|remote only|remote roles?|fully remote|work from home|wfh)\b", low) or re.fullmatch(
-        r"remote( roles| jobs| only)?[.!]?", low
-    ):
+    elif mentions_remote and re.search(r"\b(only remote|remote only|remote roles?|fully remote|work from home|wfh|remote)\b", low):
         patch["remote"] = True
+
+    track = track_from_text(low)
+    if track:
+        patch["track"] = track
+        # A new family replaces the workplace filter unless they asked for both.
+        if "remote" not in patch:
+            patch["remote"] = None
 
     if re.search(r"\b(internships?|intern roles|only intern)\b", low):
         patch["level"] = "intern"

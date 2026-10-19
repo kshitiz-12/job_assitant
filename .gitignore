@@ -6,8 +6,10 @@ __pycache__/
 *.pyc
 .env
 .env.*
+!.env.example
 data/sessions.json
 data/*.tmp
 data/cache/
 .DS_Store
 Thumbs.db
+frontend/node_modules/

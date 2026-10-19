@@ -15,11 +15,22 @@ const filterBlock = document.querySelector("#filter-block");
 const filtersEl = document.querySelector("#filters");
 const appliedEl = document.querySelector("#applied");
 const appliedEmpty = document.querySelector("#applied-empty");
+const side = document.querySelector("#side");
+const topNote = document.querySelector("#top-note");
+const dropHint = document.querySelector("#drop-hint");
+const statRoles = document.querySelector("#stat-roles");
+const statBoards = document.querySelector("#stat-boards");
+const statBoardNames = document.querySelector("#stat-board-names");
+const statSaved = document.querySelector("#stat-saved");
 
 const SESSION_KEY = "job-chat-session";
+const MONO = ["#1f6f54", "#8a4b2f", "#2f4f6f", "#6f3d55", "#3f5b3a", "#6a5428"];
+
 let sessionId = localStorage.getItem(SESSION_KEY) || "";
 let busy = false;
 let suggestionRow = null;
+// job id -> saved row, so a card can show "Applied" after a later turn or a refresh
+let appliedById = new Map();
 
 boot();
 
@@ -27,8 +38,12 @@ async function boot() {
   try {
     const health = await fetch("/api/health").then((res) => res.json());
     if (health.ok) {
-      const bits = Object.entries(health.sources || []).map(([name, count]) => `${count} ${name}`);
-      datasetEl.textContent = `${health.jobs.toLocaleString()} roles loaded` + (bits.length ? ` · ${bits.join(", ")}` : "");
+      const bits = Object.entries(health.sources || {}).map(([name, count]) => `${count} ${name}`);
+      datasetEl.textContent = `${health.jobs.toLocaleString()} live roles` + (bits.length ? ` · ${bits.join(", ")}` : "");
+      if (statRoles) statRoles.textContent = health.jobs.toLocaleString();
+      const sourceCount = Object.keys(health.sources || {}).length;
+      if (statBoards) statBoards.textContent = String(sourceCount || "—");
+      if (statBoardNames) statBoardNames.textContent = bits.join(" · ") || "Greenhouse, Lever, Ashby";
     } else {
       datasetEl.textContent = health.error || "Dataset isn't loaded.";
     }
@@ -51,18 +66,31 @@ async function boot() {
       localStorage.removeItem(SESSION_KEY);
     }
   }
-  if (!thread.children.length) {
-    appendBubble("assistant", introText(), { suggestions: ["What can you do?"] });
-  }
+  if (!thread.querySelector(".bubble")) showWelcome();
   scrollDown();
 }
 
-function introText() {
-  return [
-    "Hey. Send a PDF or DOCX resume and I'll read it back to you — name, contact, designation, skills, experience, education, and projects.",
-    "",
-    "After that, talk normally. \"Show only remote roles\", \"jobs needing React\", \"apply to job 3\", \"show my applied jobs\".",
-  ].join("\n");
+function showWelcome() {
+  const panel = document.createElement("section");
+  panel.className = "welcome";
+  panel.innerHTML = `
+    <h2>Send a resume. I'll take it from there.</h2>
+    <p class="lead">This is a conversation, not a form. After I read the file, ask for remote roles, a skill, or a specific card.</p>
+    <ol class="steps">
+      <li><span class="step-no">1</span><strong>Read the resume</strong><span>PDF or DOCX. I show the name, contact, title, skills, experience, education, and projects.</span></li>
+      <li><span class="step-no">2</span><strong>Match the dataset</strong><span>Each card has a reason: shared skills, title, and whether the years fit.</span></li>
+      <li><span class="step-no">3</span><strong>Open the real posting</strong><span>The company form uses a captcha, so the chat keeps the live link. It does not mark you as submitted.</span></li>
+    </ol>
+  `;
+  const upload = document.createElement("button");
+  upload.type = "button";
+  upload.className = "upload-btn";
+  upload.textContent = "Upload resume";
+  upload.addEventListener("click", openResumePicker);
+  const prompts = renderSuggestions(["What can you do?"]);
+  panel.append(upload, prompts);
+  suggestionRow = prompts;
+  thread.append(panel);
 }
 
 form.addEventListener("submit", (event) => {
@@ -80,53 +108,61 @@ messageBox.addEventListener("keydown", (event) => {
   }
 });
 
-fileInput.addEventListener("change", () => {
-  const file = fileInput.files[0];
-  if (!file) {
-    fileChip.hidden = true;
-    fileChip.innerHTML = "";
-    return;
-  }
-  fileChip.hidden = false;
-  fileChip.innerHTML = "";
-  const name = document.createElement("span");
-  name.textContent = file.name;
-  const clear = document.createElement("button");
-  clear.type = "button";
-  clear.textContent = "Remove";
-  clear.addEventListener("click", () => {
-    fileInput.value = "";
-    fileChip.hidden = true;
-    fileChip.innerHTML = "";
-  });
-  fileChip.append(name, clear);
+messageBox.addEventListener("input", () => {
+  messageBox.style.height = "auto";
+  messageBox.style.height = Math.min(messageBox.scrollHeight, 140) + "px";
 });
 
-log.addEventListener("dragover", (event) => {
-  event.preventDefault();
-  log.classList.add("drag");
-});
-log.addEventListener("dragleave", () => log.classList.remove("drag"));
-log.addEventListener("drop", (event) => {
-  event.preventDefault();
-  log.classList.remove("drag");
-  const file = event.dataTransfer.files && event.dataTransfer.files[0];
+function openResumePicker() {
+  fileInput.click();
+}
+
+document.querySelector("#upload-resume").addEventListener("click", openResumePicker);
+document.querySelector("#upload-inline").addEventListener("click", openResumePicker);
+
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files[0];
   if (!file) return;
-  const transfer = new DataTransfer();
-  transfer.items.add(file);
-  fileInput.files = transfer.files;
-  fileInput.dispatchEvent(new Event("change"));
+  const note = messageBox.value.trim();
+  send(note, file);
 });
+
+for (const target of [log, form]) {
+  target.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    dropHint.hidden = false;
+  });
+  target.addEventListener("dragleave", (event) => {
+    if (event.currentTarget.contains(event.relatedTarget)) return;
+    dropHint.hidden = true;
+  });
+  target.addEventListener("drop", (event) => {
+    event.preventDefault();
+    dropHint.hidden = true;
+    const file = event.dataTransfer.files && event.dataTransfer.files[0];
+    if (!file) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    fileInput.files = transfer.files;
+    fileInput.dispatchEvent(new Event("change"));
+  });
+}
 
 document.querySelector("#new-chat").addEventListener("click", () => {
   sessionId = "";
   localStorage.removeItem(SESSION_KEY);
-  thread.innerHTML = "";
+  thread.replaceChildren();
   suggestionRow = null;
+  appliedById = new Map();
   renderProfile(null);
   renderFilters(null);
   renderApplied([]);
-  appendBubble("assistant", introText(), { suggestions: ["What can you do?"] });
+  showWelcome();
+  side.classList.remove("open");
+});
+
+document.querySelector("#panel-toggle").addEventListener("click", () => {
+  side.classList.toggle("open");
 });
 
 async function send(text, file) {
@@ -137,12 +173,14 @@ async function send(text, file) {
     : text;
   if (!userText) return;
 
+  thread.querySelector(".welcome")?.remove();
   clearSuggestions();
   appendBubble("user", userText);
   messageBox.value = "";
+  messageBox.style.height = "auto";
   fileInput.value = "";
   fileChip.hidden = true;
-  fileChip.innerHTML = "";
+  fileChip.replaceChildren();
   const typing = showTyping();
   busy = true;
   sendButton.disabled = true;
@@ -164,6 +202,9 @@ async function send(text, file) {
     renderProfile(data.profile);
     renderFilters(data.filters);
     renderApplied(data.saved_applications || []);
+    if (data.profile && data.profile.name) {
+      topNote.textContent = `Matching for ${data.profile.name}.`;
+    }
   } catch {
     typing.remove();
     appendBubble("assistant", "I couldn't reach the server. Try that once more.");
@@ -177,35 +218,43 @@ async function send(text, file) {
 function appendBubble(role, text, extra = {}) {
   const bubble = document.createElement("article");
   bubble.className = `bubble ${role}`;
-  const meta = document.createElement("div");
-  meta.className = "meta";
-  const who = document.createElement("span");
-  who.textContent = role === "user" ? "You" : "Assistant";
-  meta.append(who);
-  if (extra.activity && extra.activity.length && role === "assistant") {
-    const activity = document.createElement("span");
-    activity.className = "activity";
-    activity.textContent = extra.activity.join(" · ");
-    meta.append(activity);
-  }
-  bubble.append(meta);
 
-  const body = document.createElement("div");
-  body.className = "reply";
-  body.innerHTML = formatText(text || "");
-  bubble.append(body);
+  if (role === "user") {
+    const meta = document.createElement("div");
+    meta.className = "who-line";
+    meta.textContent = "You";
+    const body = document.createElement("div");
+    // The id in parentheses is for the agent. The person just needs the role name.
+    body.textContent = String(text || "").replace(/\s+\((?:gh|lv|ab)_[^)]+\)$/i, "");
+    bubble.append(meta, body);
+  } else {
+    const card = document.createElement("div");
+    card.className = "reply-card";
+    const meta = document.createElement("div");
+    meta.className = "who-line";
+    const who = document.createElement("span");
+    who.textContent = "Assistant";
+    meta.append(who);
+    if (extra.activity && extra.activity.length) {
+      const activity = document.createElement("span");
+      activity.className = "activity";
+      activity.textContent = extra.activity.join(" · ");
+      meta.append(activity);
+    }
+    const body = document.createElement("div");
+    body.className = "reply";
+    body.innerHTML = formatText(text || "");
+    card.append(meta, body);
+    if (extra.jobs && extra.jobs.length) card.append(renderCards(extra.jobs));
+    if (extra.applications && extra.applications.length) card.append(renderReceipts(extra.applications));
+    if (extra.suggestions && extra.suggestions.length) {
+      clearSuggestions();
+      suggestionRow = renderSuggestions(extra.suggestions);
+      card.append(suggestionRow);
+    }
+    bubble.append(card);
+  }
 
-  if (extra.jobs && extra.jobs.length) {
-    bubble.append(renderCards(extra.jobs));
-  }
-  if (extra.applications && extra.applications.length) {
-    bubble.append(renderAppList(extra.applications));
-  }
-  if (extra.suggestions && extra.suggestions.length) {
-    clearSuggestions();
-    suggestionRow = renderSuggestions(extra.suggestions);
-    bubble.append(suggestionRow);
-  }
   thread.append(bubble);
   scrollDown();
 }
@@ -216,25 +265,32 @@ function renderCards(jobs) {
   for (const job of jobs) {
     const card = document.createElement("article");
     card.className = "card";
+    card.dataset.jobId = job.id || "";
+    card._job = job;
 
     const top = document.createElement("div");
     top.className = "card-top";
-    const rank = document.createElement("span");
-    rank.className = "rank";
-    rank.textContent = job.rank || "·";
+    const mono = document.createElement("span");
+    mono.className = "mono";
+    mono.style.background = MONO[hashName(job.company) % MONO.length];
+    mono.textContent = initials(job.company);
     const titles = document.createElement("div");
     const heading = document.createElement("h3");
     heading.textContent = job.title || "Untitled role";
     const company = document.createElement("p");
     company.className = "company";
-    company.textContent = job.company || "";
+    company.textContent = [job.rank ? `Job ${job.rank}` : "", job.company || ""].filter(Boolean).join(" · ");
     titles.append(heading, company);
-    top.append(rank, titles);
+    top.append(mono, titles);
     if (typeof job.score === "number") {
-      const score = document.createElement("span");
-      score.className = "score";
-      score.textContent = `${job.score}%`;
-      top.append(score);
+      const meter = document.createElement("div");
+      meter.className = "meter";
+      meter.style.setProperty("--p", String(Math.max(0, Math.min(100, job.score))));
+      meter.title = "Match score";
+      const value = document.createElement("span");
+      value.textContent = String(job.score);
+      meter.append(value);
+      top.append(meter);
     }
     card.append(top);
 
@@ -243,8 +299,7 @@ function renderCards(jobs) {
     addPill(facts, job.location);
     if (job.remote) addPill(facts, "Remote", "remote");
     addPill(facts, job.experience_required);
-    const skills = (job.skills || []).slice(0, 5).map(labelSkill);
-    if (skills.length) addPill(facts, skills.join(", "));
+    for (const skill of (job.skills || []).slice(0, 5)) addPill(facts, labelSkill(skill), "skill");
     card.append(facts);
 
     if (job.reason) {
@@ -262,39 +317,76 @@ function renderCards(jobs) {
 
     const actions = document.createElement("div");
     actions.className = "card-actions";
-    if (job.rank) {
-      const apply = document.createElement("button");
-      apply.type = "button";
-      apply.className = "texty";
-      apply.textContent = `Apply to job ${job.rank}`;
-      // The button just types the sentence. Applying still goes through the chat.
-      apply.addEventListener("click", () => send(`Apply to job ${job.rank}`));
-      actions.append(apply);
-    }
-    if (job.source_link) {
-      const link = document.createElement("a");
-      link.href = job.source_link;
-      link.target = "_blank";
-      link.rel = "noopener";
-      link.textContent = job.source ? `View on ${job.source}` : "View posting";
-      actions.append(link);
-    }
     card.append(actions);
+    paintApplyState(card, appliedById.get(job.id), job);
     wrap.append(card);
   }
   return wrap;
 }
 
-function renderAppList(rows) {
-  const list = document.createElement("ul");
+function paintApplyState(card, saved, job) {
+  const actions = card.querySelector(".card-actions");
+  if (!actions) return;
+  actions.replaceChildren();
+  const posting = job || {};
+  const rank = posting.rank;
+  if (saved) {
+    card.classList.add("is-applied");
+    const pill = document.createElement("span");
+    pill.className = "saved-pill";
+    const label = saved.status === "not_submitted" ? "Not submitted" : "Applied";
+    pill.textContent = `${label} · ${formatDay(saved.applied_date)}`;
+    actions.append(pill);
+  } else if (rank) {
+    card.classList.remove("is-applied");
+    const apply = document.createElement("button");
+    apply.type = "button";
+    apply.className = "apply";
+    apply.textContent = "Apply";
+    // Rank numbers belong to the latest list, so an older card sends its own id.
+    // The orchestrator still writes the row; the button does not call the API itself.
+    apply.addEventListener("click", () => {
+      const label = posting.title ? `${posting.title}` : `job ${rank}`;
+      send(posting.id ? `Apply to ${label} (${posting.id})` : `Apply to job ${rank}`);
+    });
+    actions.append(apply);
+  }
+  const linkHref = (saved && saved.source_link) || posting.source_link;
+  if (linkHref) {
+    const link = document.createElement("a");
+    link.href = linkHref;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = posting.source ? `Open on ${posting.source}` : "Open posting";
+    actions.append(link);
+  }
+}
+
+function renderReceipts(rows) {
+  const list = document.createElement("div");
   list.className = "apps";
   for (const row of rows) {
-    const item = document.createElement("li");
+    const item = document.createElement("article");
+    item.className = "receipt";
+    const copy = document.createElement("div");
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = row.status || "applied";
     const title = document.createElement("strong");
-    title.textContent = `${row.job_title || "Role"} · ${row.company || ""}`;
+    title.textContent = `${row.job_title || "Role"} at ${row.company || "the company"}`;
     const detail = document.createElement("div");
-    detail.textContent = `${formatDay(row.applied_date)} · ${row.status || "applied"} · ${row.job_id || ""}`;
-    item.append(title, detail);
+    detail.className = "meta-line";
+    detail.textContent = `${formatDay(row.applied_date)} · job id ${row.job_id || ""}`;
+    copy.append(badge, title, detail);
+    item.append(copy);
+    if (row.source_link) {
+      const link = document.createElement("a");
+      link.href = row.source_link;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = "Posting";
+      item.append(link);
+    }
     list.append(item);
   }
   return list;
@@ -319,29 +411,59 @@ function clearSuggestions() {
 }
 
 function renderProfile(profile) {
-  profileEl.innerHTML = "";
+  profileEl.replaceChildren();
   if (!profile) {
     profileBlock.hidden = true;
+    topNote.textContent = "Drop a resume, then talk through the matches.";
     return;
   }
   profileBlock.hidden = false;
-  const rows = [
-    ["Name", profile.name],
-    ["Contact", [profile.email, profile.phone, ...(profile.links || [])].filter(Boolean).join(" · ")],
-    ["Designation", profile.designation],
-    ["Experience", yearsText(profile)],
-    ["Skills", (profile.skills || []).slice(0, 12).map(labelSkill).join(", ")],
-    ["Education", (profile.education || []).join("; ")],
-    ["Projects", (profile.projects || []).join("; ")],
-  ];
-  for (const [label, value] of rows) {
-    const line = document.createElement("p");
-    const name = document.createElement("span");
-    name.className = "label";
-    name.textContent = `${label}: `;
-    line.append(name, document.createTextNode(value || "Not found"));
-    profileEl.append(line);
+  const who = document.createElement("div");
+  who.className = "who";
+  const avatar = document.createElement("span");
+  avatar.className = "avatar";
+  avatar.textContent = initials(profile.name || "?");
+  const names = document.createElement("div");
+  const name = document.createElement("strong");
+  name.textContent = profile.name || "Name not found";
+  const title = document.createElement("span");
+  const years = typeof profile.years === "number" ? ` · about ${profile.years} ${profile.years === 1 ? "year" : "years"}` : "";
+  title.textContent = (profile.designation || "Title not found") + years;
+  names.append(name, title);
+  who.append(avatar, names);
+  profileEl.append(who);
+
+  const contact = [profile.email, profile.phone].filter(Boolean).join(" · ");
+  if (contact) addSideLine(contact);
+  for (const role of profile.experience || []) {
+    let bit = role.title || "Role";
+    if (role.company) bit += ` at ${role.company}`;
+    if (role.dates) bit += ` (${role.dates})`;
+    addSideLine(bit);
   }
+  for (const school of profile.education || []) addSideLine(school);
+  for (const project of profile.projects || []) addSideLine(project);
+
+  const skills = (profile.skills || []).slice(0, 10).map(labelSkill);
+  if (skills.length) {
+    const chips = document.createElement("div");
+    chips.className = "chips";
+    for (const skill of skills) {
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.textContent = skill;
+      chips.append(chip);
+    }
+    profileEl.append(chips);
+  }
+  if (profile.name) topNote.textContent = `Matching for ${profile.name}.`;
+}
+
+function addSideLine(text) {
+  const line = document.createElement("p");
+  line.className = "side-line";
+  line.textContent = text;
+  profileEl.append(line);
 }
 
 function renderFilters(filters) {
@@ -355,29 +477,56 @@ function renderFilters(filters) {
   if (filters.skills && filters.skills.length) bits.push(filters.skills.map(labelSkill).join(", "));
   if (filters.location) bits.push(filters.location);
   if (filters.level) bits.push(filters.level);
+  if (filters.track) bits.push(filters.track === "fullstack" ? "Full stack" : filters.track.charAt(0).toUpperCase() + filters.track.slice(1));
   filterBlock.hidden = bits.length === 0;
   filtersEl.textContent = bits.join(" · ");
 }
 
 function renderApplied(rows) {
-  appliedEl.innerHTML = "";
+  appliedById = new Map();
+  for (const row of rows || []) {
+    if (row.job_id) appliedById.set(row.job_id, row);
+  }
+  appliedEl.replaceChildren();
   appliedEmpty.hidden = rows.length > 0;
+  if (statSaved) statSaved.textContent = String(rows.length);
   for (const row of rows) {
     const item = document.createElement("li");
     const title = document.createElement("div");
+    title.className = "role";
     title.textContent = `${row.job_title || "Role"} · ${row.company || ""}`;
     const detail = document.createElement("div");
     detail.className = "status";
     detail.textContent = `${row.status || "applied"} · ${formatDay(row.applied_date)}`;
     item.append(title, detail);
+    if (row.source_link) {
+      const link = document.createElement("a");
+      link.href = row.source_link;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = "Posting";
+      link.style.color = "#f3eee4";
+      link.style.fontSize = "0.78rem";
+      item.append(link);
+    }
     appliedEl.append(item);
+  }
+  // Cards already on screen should flip to Applied without waiting for a refresh.
+  for (const card of thread.querySelectorAll(".card[data-job-id]")) {
+    const saved = appliedById.get(card.dataset.jobId);
+    if (!saved) continue;
+    const existing = card._job || {};
+    paintApplyState(card, saved, existing);
   }
 }
 
 function showTyping() {
   const bubble = document.createElement("article");
   bubble.className = "bubble assistant";
-  bubble.innerHTML = '<div class="typing" aria-label="Assistant is writing"><i></i><i></i><i></i></div>';
+  const card = document.createElement("div");
+  card.className = "reply-card";
+  card.innerHTML = '<div class="typing" aria-label="Assistant is writing"><i></i><i></i><i></i></div>';
+  bubble.append(card);
   thread.append(bubble);
   scrollDown();
   return bubble;
@@ -451,17 +600,15 @@ function labelSkill(name) {
   return name.replace(/(^|[\s/])(\w)/g, (_, gap, letter) => gap + letter.toUpperCase());
 }
 
-function yearsText(profile) {
-  const roles = (profile.experience || []).map((role) => {
-    let bit = role.title || "Role";
-    if (role.company) bit += ` at ${role.company}`;
-    if (role.dates) bit += ` (${role.dates})`;
-    return bit;
-  });
-  const years = profile.years;
-  const yearBit = typeof years === "number" ? `about ${years} ${years === 1 ? "year" : "years"}` : "";
-  if (yearBit && roles.length) return `${yearBit} — ${roles.join("; ")}`;
-  return yearBit || roles.join("; ");
+function initials(name) {
+  const parts = String(name || "?").trim().split(/\s+/).slice(0, 2);
+  return parts.map((part) => part[0] || "").join("").toUpperCase() || "?";
+}
+
+function hashName(name) {
+  let hash = 0;
+  for (const char of String(name || "")) hash = (hash + char.charCodeAt(0)) % 997;
+  return hash;
 }
 
 function formatDay(iso) {

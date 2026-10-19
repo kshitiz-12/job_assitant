@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -20,6 +21,8 @@ from scripts.make_sample_resume import LINES, build_pdf
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = "\n".join(LINES)
+# Tests stay on the phrase rules even if a developer key is loaded.
+os.environ.pop("GEMINI_API_KEY", None)
 
 
 def test_javascript_is_not_java():
@@ -173,18 +176,39 @@ def test_remote_filter_apply_and_duplicate(client):
     session_id = first["session_id"]
 
     applied = api.post("/api/chat", data={"message": "apply to job 1", "session_id": session_id}).json()
-    assert "Applied to" in applied["reply"]
-    assert applied["saved_applications"][0]["status"] == "applied"
+    assert "not submit" in applied["reply"].lower()
+    assert applied["saved_applications"][0]["status"] == "not_submitted"
     assert applied["saved_applications"][0]["job_id"] == first["jobs"][0]["id"]
 
     again = api.post("/api/chat", data={"message": "apply to job 1", "session_id": session_id}).json()
-    assert "already applied" in again["reply"].lower()
+    assert "not submitted" in again["reply"].lower()
     stored = json.loads((data / "applications.json").read_text(encoding="utf-8"))
     assert len(stored["applications"]) == 1
 
     status = api.post("/api/chat", data={"message": "show my applied jobs", "session_id": session_id}).json()
     assert first["jobs"][0]["title"] in status["reply"]
-    assert "applied" in status["reply"].lower()
+    assert "not submitted" in status["reply"].lower() or "none of these were submitted" in status["reply"].lower()
+
+
+def test_frontend_request_drops_the_remote_filter(client):
+    api, _data = client
+    started = api.post(
+        "/api/chat",
+        data={"message": "show only remote roles"},
+        files={"file": ("alex.docx", _docx_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    ).json()
+    assert started["filters"]["remote"] is True
+    narrowed = api.post(
+        "/api/chat",
+        data={"message": "only frontend roles", "session_id": started["session_id"]},
+    ).json()
+    assert narrowed["filters"]["remote"] is None
+    assert narrowed["filters"]["track"] == "frontend"
+    assert narrowed["jobs"]
+    titles = [job["title"].lower() for job in narrowed["jobs"]]
+    assert titles
+    assert all("frontend" in title or "front-end" in title or "front end" in title for title in titles)
+    assert "remote only" not in narrowed["reply"].lower()
 
 
 def test_invalid_job_number(client):
@@ -249,6 +273,18 @@ def test_shipped_dataset():
         assert required <= set(job)
         assert job["id"] not in ids
         ids.add(job["id"])
-        assert job["source_link"].startswith("http")
+        link = job["source_link"]
+        assert link.startswith("http")
+        host = link.split("/")[2].lower()
+        assert "example.com" not in host
+        job_id = job["id"]
+        if job_id.startswith("gh_"):
+            assert "greenhouse.io" in host or "gh_jid=" in link, link
+        elif job_id.startswith("lv_"):
+            assert "lever.co" in host, link
+        elif job_id.startswith("ab_"):
+            assert "ashbyhq.com" in host, link
+        else:
+            raise AssertionError(job_id)
         assert isinstance(job["skills"], list)
         assert job["title"] and job["company"]

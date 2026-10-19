@@ -6,6 +6,7 @@ import re
 
 from app.skills import WEAK_SKILLS, skill_label
 from app.store import Store, public_job
+from app.tracks import LABELS, job_matches_track
 
 PAGE_SIZE = 5
 
@@ -147,6 +148,8 @@ def describe_filters(filters: dict) -> str:
         bits.append("in " + str(filters["location"]))
     if filters.get("level"):
         bits.append(str(filters["level"]))
+    if filters.get("track"):
+        bits.append(LABELS.get(filters["track"], str(filters["track"])) + " roles")
     return ", ".join(bits) if bits else "no extra filters"
 
 
@@ -157,6 +160,7 @@ def _explicit(session: dict) -> bool:
         or filters.get("location")
         or filters.get("level")
         or filters.get("remote") is not None
+        or filters.get("track")
     )
 
 
@@ -175,6 +179,9 @@ def _passes_filters(job: dict, filters: dict, required: list[str]) -> bool:
             return False
     level = filters.get("level")
     if level and not _level_ok(job, level):
+        return False
+    track = filters.get("track")
+    if track and not job_matches_track(job, track):
         return False
     return True
 

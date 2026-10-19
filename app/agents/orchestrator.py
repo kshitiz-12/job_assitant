@@ -60,7 +60,11 @@ class Orchestrator:
             # interpret() also flags a pasted resume; handle it before filters.
             pass
 
-        intent = interpret(message if not (data and not message.strip()) else "")
+        intent = interpret(
+            message if not (data and not message.strip()) else "",
+            profile=session.get("profile"),
+            filters=session.get("filters"),
+        )
         if data and intent["kind"] in {"empty", "greet", "ack", "fallback", "help"}:
             intent["kind"] = "jobs"
         if intent["kind"] == "pasted_resume" and not data:
@@ -122,7 +126,9 @@ class Orchestrator:
             else:
                 result = self.applications.apply(session, message)
                 reply = speak_apply(result, session)
-                activity.append("Recorded the application" if result["created"] else "Checked the application log")
+                # Only the rows this turn touched. The full log still goes out as saved_applications.
+                shown_apps = result["created"] + result["duplicates"]
+                activity.append("Saved the live posting link" if result["created"] else "Checked the application log")
         elif kind == "jobs":
             if not session.get("profile"):
                 reply = (
@@ -174,7 +180,7 @@ class Orchestrator:
             filters = session["filters"]
             changed = True
         patch = intent.get("filter_patch") or {}
-        for key in ("remote", "location", "level"):
+        for key in ("remote", "location", "level", "track"):
             if key in patch:
                 filters[key] = patch[key]
                 changed = True
@@ -250,7 +256,10 @@ class Orchestrator:
                 body += "."
             if not session.get("explained_ranks") and result["jobs"]:
                 session["explained_ranks"] = True
-                body += " Numbers are for this list only — \"apply to job 2\" means the second card."
+                body += (
+                    " Numbers are for this list only — \"apply to job 2\" means the second card. "
+                    "Asking to apply saves the live posting link. It does not submit the company form."
+                )
         return body
 
     def _details(self, session: dict, index: int | None) -> tuple[str, list[dict]]:

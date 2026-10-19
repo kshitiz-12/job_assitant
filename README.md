@@ -14,17 +14,16 @@ python scripts/scrape_jobs.py
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Open http://127.0.0.1:8000
+Open http://127.0.0.1:8000 and upload your own PDF or DOCX resume.
 
-A sample resume is in `samples/` (`alex_rivera_resume.pdf` and `.docx`). To rebuild it:
+`scripts/scrape_jobs.py` writes `data/jobs.json` from live Greenhouse, Lever, and Ashby boards. That file is the only job database. There is no hand-written job list. Applications land in `data/applications.json`. Chat state sits in `data/sessions.json` (gitignored).
+
+To let the chat read looser sentences ("only frontend roles", "remote React jobs in Berlin"), copy `.env.example` to `.env` and set `GEMINI_API_KEY`. The model only classifies the sentence. Roles still come from `jobs.json`. Without a key, the built-in phrases still work.
 
 ```bash
 pip install -r requirements-dev.txt
-python scripts/make_sample_resume.py
 pytest
 ```
-
-`scripts/scrape_jobs.py` writes `data/jobs.json`. That file is the job database. Applications land in `data/applications.json`. Chat state for a browser sits in `data/sessions.json` (gitignored).
 
 ## What a conversation looks like
 
@@ -150,5 +149,5 @@ app/skills.py                shared skill vocabulary
 app/store.py                 jobs.json, applications.json, sessions
 scripts/scrape_jobs.py       build the dataset
 static/                      the chat page
-samples/                     Alex Rivera's resume
+scripts/make_sample_resume.py  test resume used by pytest only
 ```

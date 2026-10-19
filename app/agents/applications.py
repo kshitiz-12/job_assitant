@@ -40,7 +40,9 @@ class ApplicationAgent:
             record = {
                 "job_id": job["id"],
                 "applied_date": today_iso(),
-                "status": "applied",
+                # The company form is behind a captcha. This row is the link we
+                # kept, not a submission.
+                "status": "not_submitted",
                 "applicant_key": key,
                 "applicant_name": (session.get("profile") or {}).get("name"),
                 "job_title": job["title"],
@@ -122,17 +124,20 @@ def speak_apply(result: dict, session: dict) -> str:
     lines = []
     for record in result["created"]:
         when = pretty_date(record["applied_date"])
+        # "Apply" here is the local log, not the employer's form. Say that once,
+        # in the same sentence as the id and date, so the receipt isn't a surprise.
         lines.append(
-            f"Applied to **{record['job_title']}** at **{record['company']}**. "
-            f"Saved with job id `{record['job_id']}` on {when}. Status: applied."
+            f"I did not submit **{record['job_title']}** at **{record['company']}**. "
+            f"The posting is real ({record['source_link']}), and that form uses a captcha, "
+            f"so I can't send it from here. Saved the link on {when}. Status: not submitted."
         )
     for record in result["duplicates"]:
         when = pretty_date(record["applied_date"])
         title = record.get("job_title") or "that role"
         company = record.get("company") or "that company"
         lines.append(
-            f"You already applied to **{title}** at **{company}** on {when}. "
-            f"Status is still {record.get('status', 'applied')}, so I didn't add a second row."
+            f"I already saved **{title}** at **{company}** on {when}. "
+            f"Status is still {record.get('status', 'not_submitted')}. It was not submitted."
         )
     for problem in result["problems"]:
         lines.append(_problem_line(problem, session))
@@ -144,10 +149,10 @@ def speak_apply(result: dict, session: dict) -> str:
 def speak_status(rows: list[dict]) -> str:
     if not rows:
         return (
-            "You haven't applied to anything yet. "
-            "Once a list is up, say \"apply to job 1\" and I'll record it."
+            "Nothing has been submitted. "
+            "Ask for a role and I'll keep the live posting link. The company form still has to be finished on their site."
         )
-    lines = [f"You've applied to {len(rows)} {'role' if len(rows) == 1 else 'roles'}."]
+    lines = [f"{len(rows)} {'role' if len(rows) == 1 else 'roles'} saved. None of these were submitted to the company."]
     for index, row in enumerate(rows, start=1):
         when = pretty_date(row["applied_date"])
         lines.append(

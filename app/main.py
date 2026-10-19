@@ -11,12 +11,16 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.agents.orchestrator import Orchestrator
+from app.envfile import load_env
 from app.store import Store
+
+load_env()
 
 log = logging.getLogger("jobchat")
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "static"
+UI = ROOT / "frontend" / "dist"
 MAX_UPLOAD = 4 * 1024 * 1024
 
 
@@ -96,11 +100,16 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             log.exception("chat turn failed")
             return _error_payload(session_id, "Something went wrong on my side while handling that. Try it once more.")
 
+    ui = UI if (UI / "index.html").is_file() else STATIC
+
     @app.get("/")
     def index():
-        return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
+        return FileResponse(ui / "index.html", headers={"Cache-Control": "no-cache"})
 
-    app.mount("/static", QuietStatic(directory=STATIC), name="static")
+    if (ui / "assets").is_dir():
+        app.mount("/assets", QuietStatic(directory=ui / "assets"), name="assets")
+    if ui == STATIC:
+        app.mount("/static", QuietStatic(directory=STATIC), name="static")
     log.info("loaded %s jobs from %s", len(store.jobs), store.jobs_path)
     if store.load_error:
         log.warning("%s", store.load_error)
@@ -115,7 +124,7 @@ def _error_payload(session_id: str, reply: str) -> dict:
         "jobs": [],
         "applications": None,
         "profile": None,
-        "filters": {"remote": None, "skills": [], "location": None, "level": None},
+        "filters": {"remote": None, "skills": [], "location": None, "level": None, "track": None},
         "saved_applications": [],
         "activity": [],
         "suggestions": [],

@@ -31,7 +31,7 @@ if str(ROOT) not in sys.path:
 
 from app.ingest import normalize_ashby, normalize_greenhouse, normalize_lever  # noqa: E402
 
-USER_AGENT = "job-chat-assistant/1.0 (educational resume matcher)"
+USER_AGENT = "JobChat/1.0"
 DIRECTORIES = {
     "greenhouse": "https://kalebconfer-sys.github.io/job-board-directory/greenhouse.csv",
     "ashby": "https://kalebconfer-sys.github.io/job-board-directory/ashby.csv",
