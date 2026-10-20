@@ -34,9 +34,12 @@ _PROFILE = re.compile(
 _DETAILS = re.compile(r"\b(more about|tell me about|details on|details for|what about)\b", re.I)
 _ADVICE = re.compile(
     r"\b(improve|tailor|rewrite|fix|update) (my |the )?resume\b"
-    r"|\bresume (tips|feedback|suggestions|changes)\b"
-    r"|\bsuggest resume changes\b"
-    r"|\bwhat should i (change|add|fix)\b",
+    r"|\bresume (tips|feedback|suggestions|changes|advice)\b"
+    r"|\b(changes|edits|tweaks|improvements) (to|for|on) (my |the )?resume\b"
+    r"|\bsuggest(?:ion|ions)?\b.{0,40}\b(change|changes|improve|improvements|edit|edits|tweak|tweaks|resume)\b"
+    r"|\b(change|changes|improve|improvements|edit|edits)\b.{0,40}\b(resume|cv)\b"
+    r"|\bwhat (should|would|can|could) (i|you) (change|add|fix|improve|tweak)\b"
+    r"|\bhow (can|should|do|would) i (improve|change|fix|tailor)\b",
     re.I,
 )
 _SKILL_ADD = re.compile(

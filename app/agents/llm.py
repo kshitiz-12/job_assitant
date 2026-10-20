@@ -16,7 +16,7 @@ from app.skills import SKILL_ALIASES
 from app.tracks import LABELS
 
 _KNOWN_SKILLS = tuple(name for name, _aliases in SKILL_ALIASES)
-_KINDS = {"jobs", "apply", "status", "help", "profile", "details", "greet", "ack", "fallback"}
+_KINDS = {"jobs", "apply", "status", "help", "profile", "details", "advice", "greet", "ack", "fallback"}
 _LEVELS = {"intern", "junior", "senior"}
 
 
@@ -66,7 +66,8 @@ def _prompt(message: str, profile: dict | None, filters: dict | None) -> str:
         "Classify one message for a job-search chat.\n"
         "Do not invent jobs, companies, or links. Return JSON only.\n"
         "Keys:\n"
-        "kind: jobs | apply | status | help | profile | details | greet | ack | fallback\n"
+        "kind: jobs | apply | status | help | profile | details | advice | greet | ack | fallback\n"
+        "Use advice when they ask what to change, add, or improve on the resume.\n"
         "more: true when they want the next page\n"
         "clear_filters: true when they want every filter removed\n"
         "remote: true, false, or null. Use null when they name a new kind of role and do not mention remote, "

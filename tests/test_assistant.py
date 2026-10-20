@@ -211,6 +211,21 @@ def test_frontend_request_drops_the_remote_filter(client):
     assert "remote only" not in narrowed["reply"].lower()
 
 
+def test_suggest_any_changes_gives_resume_edits(client):
+    api, _data = client
+    started = api.post(
+        "/api/chat",
+        data={"message": ""},
+        files={"file": ("alex.docx", _docx_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    ).json()
+    advice = api.post(
+        "/api/chat",
+        data={"message": "can you suggest any changes?", "session_id": started["session_id"]},
+    ).json()
+    assert "change the resume" in advice["reply"].lower()
+    assert started["jobs"][0]["title"] in advice["reply"]
+
+
 def test_invalid_job_number(client):
     api, _data = client
     started = api.post(
