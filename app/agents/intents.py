@@ -48,15 +48,28 @@ _SKILL_ADD = re.compile(
 )
 
 
-def interpret(message: str, profile: dict | None = None, filters: dict | None = None) -> dict:
-    intent = _interpret_rules(message)
-    # Apply, status, and greet stay on the rules. The model only rewrites
-    # an open-ended search sentence, and only when a key is configured.
-    if intent["kind"] in {"jobs", "fallback"}:
-        planned = plan_with_gemini(message, profile, filters)
-        if planned:
-            return planned
-    return intent
+def interpret(
+    message: str,
+    profile: dict | None = None,
+    filters: dict | None = None,
+    history: list | None = None,
+) -> dict:
+    rules = _interpret_rules(message)
+    # Applying and the status log stay on the exact phrases. Everything else
+    # is read by Gemini when a key is set, with these rules as the backup.
+    if rules["kind"] in {"apply", "status", "pasted_resume", "empty"}:
+        return rules
+    planned = plan_with_gemini(message, profile, filters, history)
+    if not planned:
+        return rules
+    rule_patch = rules.get("filter_patch") or {}
+    plan_patch = planned["filter_patch"]
+    if rule_patch.get("query") and not plan_patch.get("query"):
+        plan_patch["query"] = rule_patch["query"]
+    if "remote" not in plan_patch and "remote" in rule_patch and rule_patch.get("query"):
+        plan_patch["remote"] = rule_patch["remote"]
+    planned["source"] = "gemini"
+    return planned
 
 
 def _interpret_rules(message: str) -> dict:
@@ -199,6 +212,23 @@ def _patches(text: str) -> tuple[dict, dict, bool, bool]:
         patch["location"] = None
 
     # "I know React" updates the profile. Don't also lock the search to only React.
+    query = _title_query(text)
+    if query:
+        patch["query"] = query
+        # A new title is a new search. Keep a filter only when this message asked for it.
+        if "remote" not in patch:
+            patch["remote"] = None
+        if "track" not in patch:
+            patch["track"] = None
+        if "location" not in patch:
+            patch["location"] = None
+        if "level" not in patch:
+            patch["level"] = None
+        if "skills" not in patch and "add_skills" not in patch and "remove_skills" not in patch:
+            patch["skills"] = []
+        if "company" not in patch:
+            patch["company"] = None
+
     if "add_skills" not in profile:
         mentioned = extract_skills(text, limit=8)
         skillish = bool(re.search(
@@ -217,6 +247,35 @@ def _patches(text: str) -> tuple[dict, dict, bool, bool]:
             else:
                 patch["skills"] = mentioned
     return patch, profile, more, clear
+
+
+_ROLE_WORD = re.compile(
+    r"\b(engineers?|developers?|designers?|scientists?|analysts?|managers?|architects?|"
+    r"interns?|sde|swe|devops|sre|researchers?|programmers?|"
+    r"front[\s-]?end|back[\s-]?end|full[\s-]?stack)\b",
+    re.I,
+)
+_QUERY_NOISE = re.compile(
+    r"\b(show|me|find|search|looking|for|want|wanna|need|get|give|"
+    r"jobs?|roles?|openings?|positions?|only|just|some|any|the|a|an|please|"
+    r"hiring|recommend|matches|matching|i|im|i'm|to|be|as|work|remote|wfh)\b",
+    re.I,
+)
+
+
+def _title_query(text: str) -> str | None:
+    """Pull a role title out of a short request. "ai engineer" is one."""
+    low = (text or "").lower()
+    if re.search(r"\bmy (?:title|role|designation) is\b", low):
+        return None
+    if not _ROLE_WORD.search(low):
+        return None
+    words = re.findall(r"[a-z0-9+#]+", _QUERY_NOISE.sub(" ", low))
+    if not words or len(words) > 5:
+        return None
+    if not any(_ROLE_WORD.fullmatch(word) or word in {"sde", "swe", "devops", "sre"} for word in words):
+        return None
+    return " ".join(words)
 
 
 def _trim_phrase(value: str) -> str:

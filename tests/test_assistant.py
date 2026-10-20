@@ -226,6 +226,163 @@ def test_suggest_any_changes_gives_resume_edits(client):
     assert started["jobs"][0]["title"] in advice["reply"]
 
 
+def test_role_title_searches_matching_jobs(tmp_path: Path):
+    data = tmp_path / "data"
+    data.mkdir()
+    payload = {
+        "generated_at": "2026-10-19T00:00:00+00:00",
+        "jobs": [
+            {
+                "id": "gh_example_ai",
+                "title": "AI Engineer",
+                "company": "Northwind",
+                "location": "New York",
+                "experience_required": "3+ years",
+                "experience_years_min": 3,
+                "skills": ["python", "pytorch"],
+                "description": "Build models.",
+                "source_link": "https://example.com/jobs/ai",
+                "source": "Greenhouse",
+                "remote": False,
+            },
+            {
+                "id": "gh_example_saas",
+                "title": "Senior Software Engineer (Python / AI Insurance SaaS)",
+                "company": "Contoso",
+                "location": "Remote",
+                "experience_required": "5+ years",
+                "experience_years_min": 5,
+                "skills": ["python"],
+                "description": "Insurance platform.",
+                "source_link": "https://example.com/jobs/saas",
+                "source": "Greenhouse",
+                "remote": True,
+            },
+            {
+                "id": "gh_example_ml",
+                "title": "Sr. Machine Learning Engineer",
+                "company": "Fabrikam",
+                "location": "Remote",
+                "experience_required": "4+ years",
+                "experience_years_min": 4,
+                "skills": ["python"],
+                "description": "Training pipelines.",
+                "source_link": "https://example.com/jobs/ml",
+                "source": "Greenhouse",
+                "remote": True,
+            },
+        ],
+    }
+    (data / "jobs.json").write_text(json.dumps(payload), encoding="utf-8")
+    api = TestClient(create_app(data))
+    started = api.post(
+        "/api/chat",
+        data={"message": "show only remote roles"},
+        files={"file": ("alex.docx", _docx_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    ).json()
+    asked = api.post(
+        "/api/chat",
+        data={"message": "ai engineer", "session_id": started["session_id"]},
+    ).json()
+    assert asked["filters"]["query"] == "ai engineer"
+    assert asked["filters"]["remote"] is None
+    titles = [job["title"] for job in asked["jobs"]]
+    assert titles
+    assert "AI Engineer" in titles
+    assert "Sr. Machine Learning Engineer" in titles
+    assert all("Insurance" not in title for title in titles)
+    assert "narrow the roles" not in asked["reply"].lower()
+
+
+def test_gemini_reads_the_chat_and_writes_the_reply(tmp_path, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    data = tmp_path / "data"
+    data.mkdir()
+    payload = {
+        "generated_at": "2026-10-19T00:00:00+00:00",
+        "jobs": [
+            {
+                "id": "gh_example_nw",
+                "title": "AI Engineer",
+                "company": "Northwind",
+                "location": "New York",
+                "experience_required": "3+ years",
+                "experience_years_min": 3,
+                "skills": ["python"],
+                "description": "Models.",
+                "source_link": "https://example.com/jobs/nw",
+                "source": "Greenhouse",
+                "remote": False,
+            },
+            {
+                "id": "gh_example_co",
+                "title": "Software Engineer",
+                "company": "Contoso",
+                "location": "Remote",
+                "experience_required": "2+ years",
+                "experience_years_min": 2,
+                "skills": ["react"],
+                "description": "Product.",
+                "source_link": "https://example.com/jobs/co",
+                "source": "Greenhouse",
+                "remote": True,
+            },
+        ],
+    }
+    (data / "jobs.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def fake_urlopen(request, timeout=12):
+        prompt = json.loads(request.data.decode("utf-8"))["contents"][0]["parts"][0]["text"]
+        if prompt.startswith("Read this job-search chat"):
+            text = json.dumps({
+                "kind": "jobs",
+                "company": "Northwind",
+                "query": None,
+                "remote": None,
+                "skills": [],
+                "track": None,
+            })
+        else:
+            text = "Northwind is the employer you asked about. That application was not submitted."
+
+        class _Body:
+            def read(self):
+                return json.dumps({"candidates": [{"content": {"parts": [{"text": text}]}}]}).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        return _Body()
+
+    monkeypatch.setattr("app.agents.llm.urllib.request.urlopen", fake_urlopen)
+    api = TestClient(create_app(data))
+    started = api.post(
+        "/api/chat",
+        data={"message": ""},
+        files={"file": ("alex.docx", _docx_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    ).json()
+    asked = api.post(
+        "/api/chat",
+        data={"message": "what about that company", "session_id": started["session_id"]},
+    ).json()
+    assert asked["filters"]["company"] == "Northwind"
+    assert asked["jobs"]
+    assert all(job["company"] == "Northwind" for job in asked["jobs"])
+    assert "Northwind" in asked["reply"]
+    assert "Read the message" in asked["activity"]
+
+
+def test_reply_refuses_a_false_submission():
+    from app.agents.llm import _accept_reply
+
+    fallback = "I did not submit the form."
+    assert _accept_reply("I submitted your application.", fallback, {"must_not_claim_submitted": True}) == fallback
+    assert _accept_reply("The form was not submitted.", fallback, {"must_not_claim_submitted": True}) == "The form was not submitted."
+
+
 def test_invalid_job_number(client):
     api, _data = client
     started = api.post(

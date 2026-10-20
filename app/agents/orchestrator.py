@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from app.agents.advice import suggest_changes
 from app.agents.applications import ApplicationAgent, speak_apply, speak_status
 from app.agents.intents import interpret
+from app.agents.llm import compose_reply
 from app.agents.matcher import MatchAgent, describe_filters
 from app.agents.resume import (
     ResumeReadError,
@@ -81,10 +82,15 @@ class Orchestrator:
             # interpret() also flags a pasted resume; handle it before filters.
             pass
 
+        history = [
+            {"role": item.get("role"), "text": (item.get("text") or "")[:400]}
+            for item in (session.get("messages") or [])[-6:]
+        ]
         intent = interpret(
             message if not (data and not message.strip()) else "",
             profile=session.get("profile"),
             filters=session.get("filters"),
+            history=history,
         )
         if data and intent["kind"] in {"empty", "greet", "ack", "fallback", "help"}:
             intent["kind"] = "jobs"
@@ -136,6 +142,8 @@ class Orchestrator:
 
         filters_changed = self._apply_patches(session, intent)
         kind = intent["kind"]
+        if intent.get("source") == "gemini":
+            activity.append("Read the message")
 
         if kind in {"jobs", "empty"} and not session.get("profile") and not prelude:
             reply = (
@@ -219,6 +227,12 @@ class Orchestrator:
 
         if prelude:
             reply = f"{prelude}\n\n{reply}"
+        reply = compose_reply(
+            message,
+            history,
+            _reply_facts(session, kind, jobs, shown_apps, reply),
+            reply,
+        )
 
         self._remember(session, "user", user_text)
         self._remember(session, "assistant", reply, jobs=jobs, applications=shown_apps)
@@ -244,7 +258,7 @@ class Orchestrator:
             filters = session["filters"]
             changed = True
         patch = intent.get("filter_patch") or {}
-        for key in ("remote", "location", "level", "track"):
+        for key in ("remote", "location", "level", "track", "query", "company"):
             if key in patch:
                 filters[key] = patch[key]
                 changed = True
@@ -395,6 +409,39 @@ class Orchestrator:
             "suggestions": _suggestions(session),
             "dataset_size": len(self.store.jobs),
         }
+
+
+def _reply_facts(session: dict, kind: str, jobs: list | None, applications: list | None, draft: str) -> dict:
+    profile = session.get("profile") or {}
+    cards = []
+    for job in jobs or []:
+        cards.append({
+            "n": job.get("rank"),
+            "title": job.get("title"),
+            "company": job.get("company"),
+            "location": job.get("location"),
+        })
+    rows = []
+    for row in applications or []:
+        rows.append({
+            "title": row.get("job_title") or row.get("title"),
+            "company": row.get("company"),
+            "status": row.get("status"),
+            "date": row.get("applied_date"),
+        })
+    return {
+        "kind": kind,
+        "filters": session.get("filters") or {},
+        "resume": {
+            "name": profile.get("name"),
+            "title": profile.get("designation"),
+            "years": profile.get("years"),
+        },
+        "jobs": cards[:5],
+        "applications": rows[:8],
+        "draft": draft[:1600],
+        "must_not_claim_submitted": kind == "apply",
+    }
 
 
 def _confirms(message: str) -> bool:

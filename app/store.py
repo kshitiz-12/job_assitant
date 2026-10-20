@@ -26,7 +26,15 @@ PUBLIC_JOB_FIELDS = (
 
 
 def blank_filters() -> dict:
-    return {"remote": None, "skills": [], "location": None, "level": None, "track": None}
+    return {
+        "remote": None,
+        "skills": [],
+        "location": None,
+        "level": None,
+        "track": None,
+        "query": None,
+        "company": None,
+    }
 
 
 def blank_session(session_id: str) -> dict:

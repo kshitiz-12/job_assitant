@@ -79,5 +79,7 @@ export function filterBits(filters) {
   if (filters.track) {
     bits.push(filters.track === "fullstack" ? "Full stack" : filters.track[0].toUpperCase() + filters.track.slice(1));
   }
+  if (filters.query) bits.push(filters.query);
+  if (filters.company) bits.push(filters.company);
   return bits;
 }

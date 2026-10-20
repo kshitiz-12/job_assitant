@@ -150,6 +150,10 @@ def describe_filters(filters: dict) -> str:
         bits.append(str(filters["level"]))
     if filters.get("track"):
         bits.append(LABELS.get(filters["track"], str(filters["track"])) + " roles")
+    if filters.get("query"):
+        bits.append(str(filters["query"]))
+    if filters.get("company"):
+        bits.append("at " + str(filters["company"]))
     return ", ".join(bits) if bits else "no extra filters"
 
 
@@ -161,6 +165,8 @@ def _explicit(session: dict) -> bool:
         or filters.get("level")
         or filters.get("remote") is not None
         or filters.get("track")
+        or filters.get("query")
+        or filters.get("company")
     )
 
 
@@ -183,7 +189,67 @@ def _passes_filters(job: dict, filters: dict, required: list[str]) -> bool:
     track = filters.get("track")
     if track and not job_matches_track(job, track):
         return False
+    query = (filters.get("query") or "").strip()
+    if query and not _title_matches_query(job.get("title") or "", query):
+        return False
+    company = (filters.get("company") or "").strip()
+    if company and not _company_matches(job.get("company") or "", company):
+        return False
     return True
+
+
+# A token in the user's title, and what may stand in for it in a posting title.
+_QUERY_GROUPS = {
+    "ai": re.compile(r"\bai\b|artificial intelligence|machine learning|\bml\b", re.I),
+    "ml": re.compile(r"\bml\b|machine learning|\bai\b", re.I),
+    "sde": re.compile(r"\bsde\b|\bswe\b|software engineer|software development engineer", re.I),
+    "swe": re.compile(r"\bswe\b|\bsde\b|software engineer|software development engineer", re.I),
+    "frontend": re.compile(r"front[\s-]?end", re.I),
+    "backend": re.compile(r"back[\s-]?end", re.I),
+    "fullstack": re.compile(r"full[\s-]?stack", re.I),
+    "devops": re.compile(r"devops|\bsre\b|site reliability", re.I),
+    "sre": re.compile(r"\bsre\b|site reliability|devops", re.I),
+    "engineer": re.compile(r"engineers?", re.I),
+    "developer": re.compile(r"developers?|engineers?", re.I),
+    "scientist": re.compile(r"scientists?", re.I),
+    "analyst": re.compile(r"analysts?", re.I),
+    "designer": re.compile(r"designers?", re.I),
+    "manager": re.compile(r"managers?", re.I),
+    "architect": re.compile(r"architects?", re.I),
+    "intern": re.compile(r"interns?|internship", re.I),
+    "researcher": re.compile(r"researchers?", re.I),
+    "programmer": re.compile(r"programmers?|developers?|engineers?", re.I),
+}
+# Level words stay out of the title check. "senior ai engineer" still matches "AI Engineer".
+_QUERY_SKIP = frozenset({
+    "senior", "junior", "staff", "lead", "principal", "sr", "jr",
+    "i", "ii", "iii", "iv", "1", "2", "3", "4",
+})
+
+
+def _title_matches_query(title: str, query: str) -> bool:
+    # Ignore a parenthetical company blurb, so "Software Engineer (AI SaaS)" is not an AI engineer.
+    core = re.split(r"[\(\[]", title or "", maxsplit=1)[0]
+    tokens = [
+        token for token in re.findall(r"[a-z0-9+#]+", query.lower())
+        if token not in _QUERY_SKIP and len(token) > 1
+    ]
+    if not tokens:
+        return True
+    for token in tokens:
+        pattern = _QUERY_GROUPS.get(token)
+        if pattern:
+            if not pattern.search(core):
+                return False
+        elif token not in core.lower():
+            return False
+    return True
+
+
+def _company_matches(company: str, query: str) -> bool:
+    tokens = set(re.findall(r"[a-z0-9]+", (company or "").lower()))
+    needed = re.findall(r"[a-z0-9]+", (query or "").lower())
+    return bool(needed) and all(token in tokens for token in needed)
 
 
 def _level_ok(job: dict, level: str) -> bool:
