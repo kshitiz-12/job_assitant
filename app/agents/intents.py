@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 
 from app.agents.llm import plan_with_gemini
-from app.skills import extract_skills
+from app.skills import bare_skill_list, extract_skills
 from app.tracks import track_from_text
 
 _APPLY = re.compile(r"\b(apply|applying)\b|\bapplication\s+(for|to)\b", re.I)
@@ -66,6 +66,10 @@ def interpret(
     plan_patch = planned["filter_patch"]
     if rule_patch.get("query") and not plan_patch.get("query"):
         plan_patch["query"] = rule_patch["query"]
+    if rule_patch.get("skills") and not plan_patch.get("skills"):
+        plan_patch["skills"] = rule_patch["skills"]
+        if rule_patch.get("skill_match"):
+            plan_patch["skill_match"] = rule_patch["skill_match"]
     if "remote" not in plan_patch and "remote" in rule_patch and rule_patch.get("query"):
         plan_patch["remote"] = rule_patch["remote"]
     planned["source"] = "gemini"
@@ -226,6 +230,7 @@ def _patches(text: str) -> tuple[dict, dict, bool, bool]:
             patch["level"] = None
         if "skills" not in patch and "add_skills" not in patch and "remove_skills" not in patch:
             patch["skills"] = []
+            patch["skill_match"] = "all"
         if "company" not in patch:
             patch["company"] = None
 
@@ -241,11 +246,29 @@ def _patches(text: str) -> tuple[dict, dict, bool, bool]:
             if gone:
                 patch["remove_skills"] = gone
                 mentioned = [skill for skill in mentioned if skill not in gone]
-        if mentioned and (skillish or re.search(r"\b(only|just)\b", low)):
+        listed = bare_skill_list(text)
+        if listed:
+            patch["skills"] = listed
+            # A stack written on its own ("js typescript node") means any of those skills.
+            patch["skill_match"] = "any"
+            if "remote" not in patch:
+                patch["remote"] = None
+            if "track" not in patch:
+                patch["track"] = None
+            if "location" not in patch:
+                patch["location"] = None
+            if "level" not in patch:
+                patch["level"] = None
+            if "query" not in patch:
+                patch["query"] = None
+            if "company" not in patch:
+                patch["company"] = None
+        elif mentioned and (skillish or re.search(r"\b(only|just)\b", low)):
             if re.search(r"\b(also|and also|plus|as well)\b", low):
                 patch["add_skills"] = mentioned
             else:
                 patch["skills"] = mentioned
+                patch["skill_match"] = "all"
     return patch, profile, more, clear
 
 

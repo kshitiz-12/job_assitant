@@ -34,6 +34,7 @@ def blank_filters() -> dict:
         "track": None,
         "query": None,
         "company": None,
+        "skill_match": "all",
     }
 
 

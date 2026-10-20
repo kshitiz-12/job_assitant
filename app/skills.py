@@ -15,8 +15,8 @@ SKILL_ALIASES: list[tuple[str, tuple[str, ...]]] = [
     ("react native", ("react native", "react-native")),
     ("next.js", ("next.js", "nextjs", "next js")),
     ("node.js", ("node.js", "nodejs", "node js")),
-    ("javascript", ("javascript", "java script")),
-    ("typescript", ("typescript",)),
+    ("javascript", ("javascript", "java script", "js")),
+    ("typescript", ("typescript", "type script", "ts")),
     ("react", ("react.js", "reactjs", "react")),
     ("vue", ("vue.js", "vuejs", "vue")),
     ("angular", ("angularjs", "angular.js", "angular")),
@@ -402,3 +402,20 @@ def extract_skills(text: str, limit: int = 24) -> list[str]:
                 if len(found) >= limit:
                     return found
     return found
+
+
+_LIST_NOISE = frozenset({"and", "or", "with", "plus", "also"})
+
+
+def bare_skill_list(text: str) -> list[str]:
+    """A message that is only skill names, like "js type script node.js"."""
+    skills = extract_skills(text, limit=8)
+    if not skills:
+        return []
+    if len(re.findall(r"[a-z0-9+#.]+", (text or "").lower())) > 8:
+        return []
+    leftover = _PATTERN.sub(" ", (text or "").lower())
+    words = [word for word in re.findall(r"[a-z0-9+#.]+", leftover) if word not in _LIST_NOISE]
+    if words:
+        return []
+    return skills

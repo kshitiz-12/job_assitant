@@ -29,6 +29,28 @@ def test_javascript_is_not_java():
     assert extract_skills("JavaScript developer") == ["javascript"]
     both = extract_skills("I write Java and JavaScript")
     assert "java" in both and "javascript" in both
+    assert extract_skills("json file") == []
+
+
+def test_spaced_stack_is_javascript_typescript_and_node(client):
+    api, _data = client
+    started = api.post(
+        "/api/chat",
+        data={"message": "show only remote roles"},
+        files={"file": ("alex.docx", _docx_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    ).json()
+    asked = api.post(
+        "/api/chat",
+        data={"message": "js type script node.js", "session_id": started["session_id"]},
+    ).json()
+    assert asked["filters"]["skills"] == ["javascript", "typescript", "node.js"]
+    assert asked["filters"]["skill_match"] == "any"
+    assert asked["filters"]["remote"] is None
+    assert asked["jobs"]
+    for job in asked["jobs"]:
+        skills = set(job["skills"])
+        assert skills & {"javascript", "typescript", "node.js"}
+    assert "narrow the roles" not in asked["reply"].lower()
 
 
 def test_react_native_keeps_react():

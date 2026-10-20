@@ -264,6 +264,10 @@ class Orchestrator:
                 changed = True
         if "skills" in patch:
             filters["skills"] = list(patch["skills"])
+            filters["skill_match"] = patch.get("skill_match") or "all"
+            changed = True
+        elif "skill_match" in patch:
+            filters["skill_match"] = patch["skill_match"]
             changed = True
         if patch.get("add_skills"):
             for skill in patch["add_skills"]:

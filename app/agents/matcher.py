@@ -143,7 +143,11 @@ def describe_filters(filters: dict) -> str:
         bits.append("on-site only")
     skills = filters.get("skills") or []
     if skills:
-        bits.append("needs " + ", ".join(skill_label(s) for s in skills))
+        label = ", ".join(skill_label(s) for s in skills)
+        if filters.get("skill_match") == "any" and len(skills) > 1:
+            bits.append("any of " + label)
+        else:
+            bits.append("needs " + label)
     if filters.get("location"):
         bits.append("in " + str(filters["location"]))
     if filters.get("level"):
@@ -180,8 +184,12 @@ def _passes_filters(job: dict, filters: dict, required: list[str]) -> bool:
     place = (filters.get("location") or "").strip().lower()
     if place and place not in job["_blob"]:
         return False
-    for skill in required:
-        if skill not in job["_blob"] and skill not in job["_skills"]:
+    if required:
+        hits = [skill for skill in required if skill in job["_blob"] or skill in job["_skills"]]
+        if filters.get("skill_match") == "any":
+            if not hits:
+                return False
+        elif len(hits) != len(required):
             return False
     level = filters.get("level")
     if level and not _level_ok(job, level):
