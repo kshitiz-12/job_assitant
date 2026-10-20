@@ -226,6 +226,18 @@ def test_invalid_job_number(client):
     assert missed["saved_applications"] == []
 
 
+def _letter_docx() -> bytes:
+    document = Document()
+    document.add_paragraph("Quarterly facilities note")
+    document.add_paragraph(
+        "The warehouse move finished on Friday. Please review the invoice totals and send comments to the operations desk before Monday."
+    )
+    document.add_paragraph("Parking passes for the new building will be handed out next week by the facilities team.")
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
 def test_unreadable_resume(client):
     api, _data = client
     response = api.post(
@@ -236,6 +248,25 @@ def test_unreadable_resume(client):
     assert response.status_code == 200
     reply = response.json()["reply"].lower()
     assert "couldn't" in reply or "text" in reply
+
+
+def test_other_document_is_not_treated_as_a_resume(client):
+    api, _data = client
+    uploaded = api.post(
+        "/api/chat",
+        data={"message": ""},
+        files={"file": ("notes.docx", _letter_docx(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    ).json()
+    assert uploaded["profile"] is None
+    assert uploaded["jobs"] == []
+    assert "doesn't look like a resume" in uploaded["reply"].lower()
+    asked = api.post(
+        "/api/chat",
+        data={"message": "show remote jobs", "session_id": uploaded["session_id"]},
+    ).json()
+    assert asked["jobs"] == []
+    assert asked["profile"] is None
+    assert "won't" in asked["reply"].lower() or "not going to score" in asked["reply"].lower()
 
 
 def test_no_skill_overlap_filter(client):

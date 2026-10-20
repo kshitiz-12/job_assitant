@@ -67,6 +67,25 @@ class ResumeReadError(Exception):
         self.message = message
 
 
+class ResumeUnclear(ResumeReadError):
+    """The file has text, but it does not look like a resume."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__("This doesn't look like a resume.")
+        self.text = text
+
+
+def unclear_reply(filename: str) -> str:
+    label = filename or "that file"
+    return (
+        f"This doesn't look like a resume. I opened **{label}** and there is text in it, "
+        "but I can't find a role, work history, education, or a skills section. "
+        "I didn't guess a profile from it, and I won't match jobs against it.\n\n"
+        "If this really is your resume, say **yes, use this file** and I'll work with what's there. "
+        "Otherwise upload the right PDF or DOCX and I'll start over."
+    )
+
+
 def extract_upload(filename: str, data: bytes) -> str:
     kind = _kind(filename, data)
     if kind == ".pdf":
@@ -145,7 +164,7 @@ def _docx_text(data: bytes) -> str:
     return "\n".join(parts)
 
 
-def parse_resume_text(text: str, today: datetime | None = None) -> dict:
+def parse_resume_text(text: str, today: datetime | None = None, accept_uncertain: bool = False) -> dict:
     letters = re.sub(r"[^A-Za-z]", "", text or "")
     if len(letters) < MIN_LETTERS:
         raise ResumeReadError(
@@ -186,10 +205,9 @@ def parse_resume_text(text: str, today: datetime | None = None) -> dict:
         bool(education),
         bool(experience),
     ]
-    if sum(useful) < 2:
-        raise ResumeReadError(
-            "I got some text out of that file, but it doesn't look like a resume. Check that you uploaded the right document."
-        )
+    if sum(useful) < 2 or not _confident(experience, education, projects, designation, email, phone, sections, skills):
+        if not accept_uncertain:
+            raise ResumeUnclear(text)
     return {
         "name": name,
         "email": email,
@@ -206,30 +224,64 @@ def parse_resume_text(text: str, today: datetime | None = None) -> dict:
 
 
 def profile_summary(profile: dict) -> str:
-    """Plain-text version of the parse, for the chat transcript."""
+    """Conversational read-back of the parse. Still names every field we kept."""
     name = profile.get("name") or "there"
-    lines = [f"I read {name}'s resume. Here's what I kept."]
-    lines.append(f"Name: {profile.get('name') or 'Not found'}")
+    title = profile.get("designation")
+    opener = f"Got it — I read this as **{name}**'s resume."
+    if title:
+        opener += f" The headline I kept is **{title}**"
+        years = profile.get("years")
+        if isinstance(years, (int, float)):
+            number = int(years) if float(years).is_integer() else years
+            unit = "year" if number == 1 else "years"
+            opener += f", with about {number} {unit}"
+        opener += "."
+    else:
+        opener += " I couldn't find a job title on it."
+    lines = [opener]
     contact = [bit for bit in (profile.get("email"), profile.get("phone"), *(profile.get("links") or [])) if bit]
-    lines.append("Contact: " + (" · ".join(contact) if contact else "Not found"))
-    lines.append(f"Designation: {profile.get('designation') or 'Not found'}")
+    if contact:
+        lines.append("Contact: " + " · ".join(contact))
     lines.append("Experience: " + _experience_line(profile))
     skills = profile.get("skills") or []
     if skills:
-        lines.append("Skills: " + ", ".join(skill_label(s) for s in skills[:16]))
+        lines.append("Skills that stood out: " + ", ".join(skill_label(s) for s in skills[:12]) + ".")
     else:
-        lines.append("Skills: Not found")
+        lines.append("I didn't catch a skills list.")
     education = profile.get("education") or []
-    lines.append("Education: " + ("; ".join(education) if education else "Not found"))
+    if education:
+        lines.append("Education: " + "; ".join(education) + ".")
     projects = profile.get("projects") or []
-    lines.append("Projects: " + ("; ".join(projects) if projects else "Not found"))
-    warnings = profile.get("warnings") or []
+    if projects:
+        lines.append("Projects: " + "; ".join(projects) + ".")
+    warnings = [item for item in (profile.get("warnings") or []) if item]
     if warnings:
-        lines.append("")
         lines.append(" ".join(warnings))
-    lines.append("")
-    lines.append('If a line is wrong, correct me — for example "my title is Data Analyst" or "I have 4 years".')
-    return "\n".join(lines)
+    lines.append('If a line is wrong, just say so — "my title is Data Analyst" or "I have 4 years" is enough.')
+    return "\n\n".join(lines)
+
+
+def _confident(experience, education, projects, designation, email, phone, sections, skills) -> bool:
+    """A random PDF can mention a skill or a person's name. A resume has structure."""
+    work = bool(experience)
+    taught = bool(education)
+    built = bool(projects)
+    titled = bool(designation)
+    contact = bool(email or phone)
+    skill_lines = sections.get("skills") or []
+    listed = extract_skills("\n".join(skill_lines), limit=12)
+    headed = any(sections.get(key) for key in ("experience", "education", "skills", "projects"))
+    if work and (titled or contact or listed):
+        return True
+    if taught and (titled or contact or work):
+        return True
+    if len(listed) >= 2 and (titled or contact or work):
+        return True
+    if built and titled and contact:
+        return True
+    if headed and contact and titled and len(skills) >= 3:
+        return True
+    return False
 
 
 def _experience_line(profile: dict) -> str:

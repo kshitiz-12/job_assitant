@@ -1,4 +1,4 @@
-"""HTTP surface for the chat. The UI is static files; this is the whole API."""
+"""HTTP API. The dashboard is a separate frontend."""
 
 from __future__ import annotations
 
@@ -7,8 +7,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.agents.orchestrator import Orchestrator
 from app.envfile import load_env
@@ -19,17 +18,14 @@ load_env()
 log = logging.getLogger("jobchat")
 
 ROOT = Path(__file__).resolve().parents[1]
-STATIC = ROOT / "static"
-UI = ROOT / "frontend" / "dist"
 MAX_UPLOAD = 4 * 1024 * 1024
 
 
-class QuietStatic(StaticFiles):
-    async def get_response(self, path: str, scope):
-        response = await super().get_response(path, scope)
-        # Browsers will happily keep yesterday's CSS during a demo.
-        response.headers["Cache-Control"] = "no-cache"
-        return response
+def _allow_origins() -> list[str]:
+    raw = os.environ.get("CORS_ORIGINS", "*").strip()
+    if not raw or raw == "*":
+        return ["*"]
+    return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 def create_app(data_dir: Path | None = None) -> FastAPI:
@@ -38,6 +34,12 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     store = Store(data_dir)
     orchestrator = Orchestrator(store)
     app = FastAPI(title="Job Chat Assistant")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_allow_origins(),
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.state.store = store
     app.state.orchestrator = orchestrator
 
@@ -100,16 +102,6 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             log.exception("chat turn failed")
             return _error_payload(session_id, "Something went wrong on my side while handling that. Try it once more.")
 
-    ui = UI if (UI / "index.html").is_file() else STATIC
-
-    @app.get("/")
-    def index():
-        return FileResponse(ui / "index.html", headers={"Cache-Control": "no-cache"})
-
-    if (ui / "assets").is_dir():
-        app.mount("/assets", QuietStatic(directory=ui / "assets"), name="assets")
-    if ui == STATIC:
-        app.mount("/static", QuietStatic(directory=STATIC), name="static")
     log.info("loaded %s jobs from %s", len(store.jobs), store.jobs_path)
     if store.load_error:
         log.warning("%s", store.load_error)

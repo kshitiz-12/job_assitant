@@ -7,12 +7,21 @@ the application log, and the other way around.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
+from app.agents.advice import suggest_changes
 from app.agents.applications import ApplicationAgent, speak_apply, speak_status
 from app.agents.intents import interpret
 from app.agents.matcher import MatchAgent, describe_filters
-from app.agents.resume import ResumeReadError, extract_upload, parse_resume_text, profile_summary
+from app.agents.resume import (
+    ResumeReadError,
+    ResumeUnclear,
+    extract_upload,
+    parse_resume_text,
+    profile_summary,
+    unclear_reply,
+)
 from app.skills import skill_label
 from app.store import Store, applicant_key, blank_filters
 
@@ -48,12 +57,24 @@ class Orchestrator:
 
         if data:
             try:
-                parsed = self._read_resume(session, extract_upload(filename or "", data))
+                raw = extract_upload(filename or "", data)
             except ResumeReadError as exc:
                 self._remember(session, "user", user_text)
                 self._remember(session, "assistant", exc.message)
                 self.store.save_session(session)
                 return self._payload(session, user_text, exc.message, [], None, ["Tried to read the resume"])
+            try:
+                parsed = self._read_resume(session, raw)
+            except ResumeUnclear as exc:
+                session["pending_resume"] = {"text": exc.text[:15000], "filename": filename or "that file"}
+                reply = unclear_reply(filename or "that file")
+                if session.get("profile"):
+                    reply += "\n\nI left the resume I already had on file. This new upload didn't replace it."
+                self._remember(session, "user", user_text)
+                self._remember(session, "assistant", reply)
+                self.store.save_session(session)
+                return self._payload(session, user_text, reply, [], None, ["Checked the file"])
+            session["pending_resume"] = None
             prelude = profile_summary(parsed)
             activity.append("Read the resume")
         elif message.strip():
@@ -67,9 +88,43 @@ class Orchestrator:
         )
         if data and intent["kind"] in {"empty", "greet", "ack", "fallback", "help"}:
             intent["kind"] = "jobs"
+        if not data and session.get("pending_resume") and _confirms(message):
+            pending = session.pop("pending_resume")
+            try:
+                parsed = self._read_resume(session, pending.get("text") or "", accept_uncertain=True)
+            except ResumeReadError as exc:
+                reply = exc.message
+                self._remember(session, "user", user_text)
+                self._remember(session, "assistant", reply)
+                self.store.save_session(session)
+                return self._payload(session, user_text, reply, [], None, ["Tried to use the confirmed file"])
+            prelude = profile_summary(parsed)
+            activity.append("Used the file you confirmed")
+            intent["kind"] = "jobs"
+        elif (
+            session.get("pending_resume")
+            and not session.get("profile")
+            and intent["kind"] in {"jobs", "apply", "advice", "details"}
+        ):
+            reply = (
+                "I still don't have a resume I can trust, so I'm not going to score jobs yet. "
+                "The last file didn't look like one.\n\n"
+                "Upload your resume, or say **yes, use this file** if you want me to use that document anyway."
+            )
+            self._remember(session, "user", user_text)
+            self._remember(session, "assistant", reply)
+            self.store.save_session(session)
+            return self._payload(session, user_text, reply, [], None, ["Waited for a real resume"])
         if intent["kind"] == "pasted_resume" and not data:
             try:
                 parsed = self._read_resume(session, message)
+            except ResumeUnclear as exc:
+                session["pending_resume"] = {"text": exc.text[:15000], "filename": "the pasted text"}
+                reply = unclear_reply("the pasted text")
+                self._remember(session, "user", user_text)
+                self._remember(session, "assistant", reply)
+                self.store.save_session(session)
+                return self._payload(session, user_text, reply, [], None, ["Checked the pasted text"])
             except ResumeReadError as exc:
                 self._remember(session, "user", user_text)
                 self._remember(session, "assistant", exc.message)
@@ -120,12 +175,21 @@ class Orchestrator:
         elif kind == "details":
             reply, jobs = self._details(session, intent["detail_index"])
             activity.append("Opened that posting")
+        elif kind == "advice":
+            if not session.get("profile"):
+                reply = "Upload a resume first. Once I can see it, I'll tell you what to change for a specific role."
+            else:
+                reply = suggest_changes(session["profile"], self._advice_jobs(session, message))
+                activity.append("Compared the resume with the roles in front of you")
         elif kind == "apply":
             if not session.get("profile"):
                 reply = "Upload a resume first so I know who the application is for. Then say \"apply to job 3\"."
             else:
                 result = self.applications.apply(session, message)
                 reply = speak_apply(result, session)
+                if result["created"]:
+                    targets = [self.store.get_job(row["job_id"]) for row in result["created"]]
+                    reply += "\n\n" + suggest_changes(session.get("profile") or {}, targets)
                 # Only the rows this turn touched. The full log still goes out as saved_applications.
                 shown_apps = result["created"] + result["duplicates"]
                 activity.append("Saved the live posting link" if result["created"] else "Checked the application log")
@@ -161,8 +225,8 @@ class Orchestrator:
         self.store.save_session(session)
         return self._payload(session, user_text, reply, jobs, shown_apps, activity)
 
-    def _read_resume(self, session: dict, text: str) -> dict:
-        profile = parse_resume_text(text)
+    def _read_resume(self, session: dict, text: str, accept_uncertain: bool = False) -> dict:
+        profile = parse_resume_text(text, accept_uncertain=accept_uncertain)
         previous = f"session:{session['id']}"
         session["profile"] = profile
         session["offset"] = 0
@@ -247,13 +311,15 @@ class Orchestrator:
                     f"Nearest {shown} of {total}, from {len(self.store.jobs):,} listings."
                 )
             else:
+                who = (session.get("profile") or {}).get("name") or "your background"
                 body = (
-                    f"Showing {start}–{end} of {total} {'match' if total == 1 else 'matches'} "
-                    f"from {len(self.store.jobs):,} listings"
+                    f"Here are {start}–{end} of {total} roles that line up with {who}"
                 )
                 if filters != "no extra filters":
-                    body += f" ({filters})"
+                    body += f", keeping it to {filters}"
                 body += "."
+            if result["jobs"] and result["offset"] == 0 and not result["wrapped"]:
+                body += "\n\n" + suggest_changes(session.get("profile") or {}, result["jobs"])
             if not session.get("explained_ranks") and result["jobs"]:
                 session["explained_ranks"] = True
                 body += (
@@ -290,6 +356,22 @@ class Orchestrator:
         )
         return reply, [card]
 
+    def _advice_jobs(self, session: dict, message: str) -> list[dict]:
+        last = list(session.get("last_results") or [])
+        picked: list[str] = []
+        for match in re.finditer(r"(?:#|job|role|number|no\.?)\s*(\d{1,3})\b", (message or "").lower()):
+            number = int(match.group(1))
+            if 1 <= number <= len(last):
+                picked.append(last[number - 1])
+        if not picked:
+            picked = last[:5]
+        found = []
+        for job_id in picked:
+            job = self.store.get_job(job_id)
+            if job:
+                found.append(job)
+        return found
+
     def _remember(self, session: dict, role: str, text: str, jobs: list | None = None, applications: list | None = None) -> None:
         session.setdefault("messages", []).append({
             "role": role,
@@ -315,6 +397,13 @@ class Orchestrator:
         }
 
 
+def _confirms(message: str) -> bool:
+    low = (message or "").strip().lower().strip(".!")
+    if low in {"yes", "yep", "yeah", "confirm", "yes use this file", "use this file"}:
+        return True
+    return bool(re.search(r"\b(yes,?\s+use this file|use this file|this is my resume|it is my resume)\b", low))
+
+
 def _user_text(message: str, filename: str | None, data: bytes | None) -> str:
     if data:
         label = f"Uploaded {filename or 'resume'}"
@@ -323,6 +412,8 @@ def _user_text(message: str, filename: str | None, data: bytes | None) -> str:
 
 
 def _suggestions(session: dict) -> list[str]:
+    if session.get("pending_resume") and not session.get("profile"):
+        return ["Yes, use this file"]
     if not session.get("profile"):
         return ["What can you do?"]
     tips = []
@@ -332,6 +423,8 @@ def _suggestions(session: dict) -> list[str]:
     skills = (session.get("profile") or {}).get("skills") or []
     if skills:
         tips.append(f"Jobs needing {skill_label(skills[0])}")
+    if session.get("last_results"):
+        tips.append("Suggest resume changes")
     if (session.get("match_total") or 0) > 5:
         tips.append("Show more")
     tips.append("Show my applied jobs")

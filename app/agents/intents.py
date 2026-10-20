@@ -32,6 +32,13 @@ _PROFILE = re.compile(
     re.I,
 )
 _DETAILS = re.compile(r"\b(more about|tell me about|details on|details for|what about)\b", re.I)
+_ADVICE = re.compile(
+    r"\b(improve|tailor|rewrite|fix|update) (my |the )?resume\b"
+    r"|\bresume (tips|feedback|suggestions|changes)\b"
+    r"|\bsuggest resume changes\b"
+    r"|\bwhat should i (change|add|fix)\b",
+    re.I,
+)
 _SKILL_ADD = re.compile(
     r"\bi (?:also )?(?:know|use|have worked with|have experience with)\b",
     re.I,
@@ -87,6 +94,9 @@ def _interpret_rules(message: str) -> dict:
         return intent
     if _PROFILE.search(low):
         intent["kind"] = "profile"
+        return intent
+    if _ADVICE.search(low) and not _APPLY.search(low):
+        intent["kind"] = "advice"
         return intent
 
     detail = _detail_index(low)

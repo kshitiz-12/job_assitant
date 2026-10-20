@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { apiUrl } from "./api.js";
 import { displayUserText, filterBits, formatDay, initials, labelSkill, monoColor } from "./format.js";
 
 const SESSION_KEY = "job-chat-session";
@@ -20,7 +21,7 @@ export default function App() {
   const savedById = new Map(saved.filter((row) => row.job_id).map((row) => [row.job_id, row]));
 
   useEffect(() => {
-    fetch("/api/health")
+    fetch(apiUrl("/api/health"))
       .then((res) => res.json())
       .then((data) => (data.ok ? setHealth(data) : setHealthError(data.error || "Dataset isn't loaded.")))
       .catch(() => setHealthError("Couldn't reach the server."));
@@ -29,7 +30,7 @@ export default function App() {
   useEffect(() => {
     const existing = sessionRef.current;
     if (!existing) return;
-    fetch(`/api/session/${existing}`)
+    fetch(apiUrl(`/api/session/${existing}`))
       .then((res) => (res.ok ? res.json() : Promise.reject()))
       .then((data) => {
         setProfile(data.profile || null);
@@ -81,7 +82,7 @@ export default function App() {
     if (file) body.append("file", file);
 
     try {
-      const res = await fetch("/api/chat", { method: "POST", body });
+      const res = await fetch(apiUrl("/api/chat"), { method: "POST", body });
       const data = await res.json();
       if (data.session_id) rememberSession(data.session_id);
       setMessages((current) => [
@@ -118,13 +119,13 @@ export default function App() {
   const filterList = filterBits(filters);
 
   return (
-    <div className="flex h-full bg-slate-100 text-slate-900">
+    <div className="flex h-full bg-[#e7edf2] text-slate-900">
       {sidebar && (
         <button className="fixed inset-0 z-20 bg-slate-900/40 md:hidden" aria-label="Close panel" onClick={() => setSidebar(false)} />
       )}
       <aside className={`${sidebar ? "flex" : "hidden"} fixed inset-y-0 left-0 z-30 w-80 flex-col gap-4 overflow-auto bg-slate-900 p-5 text-stone-100 md:static md:flex`}>
         <div className="flex items-center gap-3">
-          <span className="grid h-10 w-10 place-items-center rounded-xl bg-orange-700 font-serif text-lg">J</span>
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-orange-700 font-serif text-lg shadow-lg shadow-orange-950/40">J</span>
           <div>
             <strong className="block font-serif text-xl leading-none">Job Chat</strong>
             <span className="text-sm text-stone-400">Dashboard</span>
@@ -203,13 +204,13 @@ export default function App() {
         </header>
 
         <section className="grid gap-3 sm:grid-cols-3">
-          <Metric label="Roles" value={health ? health.jobs.toLocaleString() : "—"} note="Live scraped listings" />
-          <Metric label="Boards" value={health ? Object.keys(health.sources || {}).length : "—"} note={sourceBits.join(" · ") || "Greenhouse, Lever, Ashby"} />
-          <Metric label="Saved" value={String(saved.length)} note="Links kept, not submitted" />
+          <Metric label="Roles" value={health ? health.jobs.toLocaleString() : "—"} note="Live scraped listings" delay="delay-1" />
+          <Metric label="Boards" value={health ? Object.keys(health.sources || {}).length : "—"} note={sourceBits.join(" · ") || "Greenhouse, Lever, Ashby"} delay="delay-2" />
+          <Metric label="Saved" value={String(saved.length)} note="Links kept, not submitted" delay="delay-3" />
         </section>
 
-        <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div ref={logRef} className="flex-1 space-y-4 overflow-auto px-4 py-5 md:px-6">
+        <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-white/80 bg-white/80 shadow-xl shadow-slate-300/40 backdrop-blur">
+          <div ref={logRef} className="flex-1 space-y-4 overflow-auto bg-[radial-gradient(circle_at_top,_#fff,_#f4f7f8_55%)] px-4 py-5 md:px-6">
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
               {messages.length === 0 && <Welcome onUpload={() => fileRef.current?.click()} onPrompt={(text) => send(text)} />}
               {messages.map((message, index) => (
@@ -221,12 +222,16 @@ export default function App() {
                 />
               ))}
               {busy && (
-                <div className="rounded-2xl rounded-bl-md border border-slate-100 bg-stone-50 px-4 py-3 text-sm text-slate-500">Assistant is writing…</div>
+                <div className="rise flex w-fit items-center gap-2 rounded-2xl rounded-bl-md border border-slate-100 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">
+                  <span className="typing-dot h-1.5 w-1.5 rounded-full bg-orange-700" />
+                  <span className="typing-dot h-1.5 w-1.5 rounded-full bg-orange-700" />
+                  <span className="typing-dot h-1.5 w-1.5 rounded-full bg-orange-700" />
+                </div>
               )}
             </div>
           </div>
           <form
-            className="m-3 rounded-2xl border border-slate-200 bg-stone-50 p-2"
+            className="m-3 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm"
             onSubmit={(event) => {
               event.preventDefault();
               const text = draft.trim();
@@ -259,9 +264,9 @@ export default function App() {
   );
 }
 
-function Metric({ label, value, note }) {
+function Metric({ label, value, note, delay = "" }) {
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+    <article className={`rise ${delay} rounded-2xl border border-white bg-white px-4 py-3 shadow-sm`}>
       <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</span>
       <strong className="mt-1 block font-serif text-3xl leading-none">{value}</strong>
       <small className="mt-2 block text-xs text-slate-500">{note}</small>
@@ -271,7 +276,7 @@ function Metric({ label, value, note }) {
 
 function Welcome({ onUpload, onPrompt }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-stone-50 p-5">
+    <section className="rise rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
       <h2 className="font-serif text-3xl">Send a resume. I'll take it from there.</h2>
       <p className="mt-2 max-w-xl text-slate-600">This is a conversation, not a form. After the file is read, ask for remote roles, a skill, or a specific card.</p>
       <ol className="mt-4 grid gap-3 md:grid-cols-3">
@@ -280,7 +285,7 @@ function Welcome({ onUpload, onPrompt }) {
           ["Match the dataset", "Each card has a reason: shared skills, title, and whether the years fit."],
           ["Open the real posting", "The company form uses a captcha, so the chat keeps the live link."],
         ].map(([title, copy], index) => (
-          <li key={title} className="rounded-xl border border-slate-200 bg-white p-3">
+          <li key={title} className="rise rounded-xl border border-slate-200 bg-stone-50 p-3" style={{ animationDelay: `${index * 70}ms` }}>
             <span className="grid h-6 w-6 place-items-center rounded-full bg-orange-100 text-xs font-semibold text-orange-900">{index + 1}</span>
             <strong className="mt-2 block">{title}</strong>
             <span className="mt-1 block text-sm text-slate-500">{copy}</span>
@@ -298,14 +303,14 @@ function Welcome({ onUpload, onPrompt }) {
 function Message({ message, savedById, onSend }) {
   if (message.role === "user") {
     return (
-      <article className="max-w-lg self-end rounded-2xl rounded-br-md bg-slate-800 px-4 py-2 text-stone-100">
+      <article className="rise max-w-lg self-end rounded-2xl rounded-br-md bg-slate-800 px-4 py-2 text-stone-100 shadow-md">
         <div className="text-xs text-stone-400">You</div>
         <p className="whitespace-pre-wrap">{displayUserText(message.text)}</p>
       </article>
     );
   }
   return (
-    <article className="rounded-2xl rounded-bl-md border border-slate-100 bg-stone-50 px-4 py-3">
+    <article className="rise rounded-2xl rounded-bl-md border border-slate-100 bg-white px-4 py-3 shadow-sm">
       <div className="mb-1 flex justify-between gap-3 text-xs text-slate-500">
         <span>Assistant</span>
         {message.activity?.length > 0 && <span className="text-orange-800">{message.activity.join(" · ")}</span>}
@@ -335,7 +340,7 @@ function Message({ message, savedById, onSend }) {
       {message.suggestions?.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
           {message.suggestions.map((item) => (
-            <button key={item} className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm" onClick={() => onSend(item)}>{item}</button>
+            <button key={item} className="rounded-full border border-slate-300 bg-stone-50 px-3 py-1.5 text-sm transition hover:-translate-y-0.5 hover:border-orange-300" onClick={() => onSend(item)}>{item}</button>
           ))}
         </div>
       )}
@@ -345,7 +350,7 @@ function Message({ message, savedById, onSend }) {
 
 function JobCard({ job, saved, onSend }) {
   return (
-    <article className={`rounded-2xl border p-3 ${saved ? "border-emerald-200 bg-emerald-50/60" : "border-slate-200 bg-white"}`}>
+    <article className={`rise rounded-2xl border p-3 transition hover:-translate-y-0.5 hover:shadow-md ${saved ? "border-emerald-200 bg-emerald-50/70" : "border-slate-200 bg-stone-50"}`}>
       <div className="flex gap-3">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl font-semibold text-white" style={{ background: monoColor(job.company) }}>{initials(job.company)}</span>
         <div className="min-w-0">

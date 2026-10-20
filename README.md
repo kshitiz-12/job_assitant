@@ -14,7 +14,15 @@ python scripts/scrape_jobs.py
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Open http://127.0.0.1:8000 and upload your own PDF or DOCX resume.
+In a second terminal, start the dashboard:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://127.0.0.1:5173 and upload your own PDF or DOCX resume. The dev server forwards `/api` to the API on port 8000.
 
 `scripts/scrape_jobs.py` writes `data/jobs.json` from live Greenhouse, Lever, and Ashby boards. That file is the only job database. There is no hand-written job list. Applications land in `data/applications.json`. Chat state sits in `data/sessions.json` (gitignored).
 
@@ -119,21 +127,21 @@ Errors that belong in the conversation (unreadable resume, no matches, job 9 whe
 {
   "job_id": "gh_gitlab_123",
   "applied_date": "2026-10-19",
-  "status": "applied"
+  "status": "not_submitted"
 }
 ```
 
-The file also keeps the applicant key, name, title, company, and source link so "show my applied jobs" can name the role. Status stays `applied`. The same applicant and job id cannot be inserted twice.
+The file also keeps the applicant key, name, title, company, and source link so "show my applied jobs" can name the role. Status is `not_submitted` until the company form is finished on their site. The same applicant and job id cannot be inserted twice.
 
 Recording an application writes this file. It does not submit the employer's own form — those endpoints need the employer's credentials, and the product requirement here is the saved row plus the link to the posting.
 
 ## Deploy
 
-The app is a single process. `Procfile`, `render.yaml`, and `Dockerfile` all start uvicorn on `$PORT`.
+The API and the dashboard deploy separately.
 
-On Render, a free web service sleeps and its disk is ephemeral, so `applications.json` lasts for the life of that process. Point `DATA_DIR` at a persistent disk if you need the log to survive a restart. `jobs.json` is read from the image.
+**Backend on Render.** New Web Service from this repo, root directory blank. `render.yaml` installs Python and starts uvicorn. Health check is `/api/health`. Optional: set `GEMINI_API_KEY` in the Render environment. Do not commit that key. A free instance sleeps, and its disk is ephemeral, so `applications.json` lasts for the life of that process. `jobs.json` is in the repo and is read on startup.
 
-Health check: `/api/health`.
+**Frontend on Vercel.** Import the same repo, set the root directory to `frontend`, framework Vite. Add `VITE_API_URL` as the Render origin with no trailing slash, for example `https://job-chat-assistant.onrender.com`. Redeploy the frontend after that value changes, because Vite bakes it in at build time.
 
 ## Layout
 
@@ -148,6 +156,6 @@ app/ingest.py                ATS payload -> job record
 app/skills.py                shared skill vocabulary
 app/store.py                 jobs.json, applications.json, sessions
 scripts/scrape_jobs.py       build the dataset
-static/                      the chat page
+frontend/                    React dashboard, deployed on Vercel
 scripts/make_sample_resume.py  test resume used by pytest only
 ```
